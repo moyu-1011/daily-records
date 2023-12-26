@@ -1,2 +1,6 @@
-# daily-records
-records in my work and study
+# 记录学习和工作
+
+平时的学习和踩坑都记录一下 >_<
+
+
+
