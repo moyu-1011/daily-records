@@ -169,16 +169,83 @@ app.mount('#app')
 **收集问题：**
 
 - 页面刷新/崩溃、网络重连等怎么续传(不重复传)
-  - 服务器端告知从哪续传
-  - 前端自行处理
-- 怎么自动恢复下载
+  - 上传时检查服务器分片上传信息，返回未上传的分片继续上传。重传也同样。
+
+- 怎么自动恢复上传
+  - 上传失败后进行提示，手动点击重新上传进行恢复。
+
 - chunk会不会出现损坏的情况，损坏了怎么办。
   - chunk全部上传后，前端发起合并请求，后端检查合并文件md5是否正确。
-
+  
 - 记录chunk上传状态的方式
   - 生成一个conf文件记录chunk上传状态：设置文件的长度为chunkSize，每次有chunk写入后，都在文件的chunkNumber偏移量处写入`Byte.MaxValue`（127，可能是直接符号运算更快？），检查哪些chunk没传或者是否传完，就把文件读到byte数组`FileUtils.readFileToByteArray(confFile)`，如果下标处不为`Byte.MaxValue`，就没传过。思路来源：[file-upload](https://gitee.com/Analyzer/vip-file-upload)
+  - 使用数据库表记录分片信息，文件上传成功后，通过文件md5删除分片信息。[大文件分片上传及下载、断点续传、秒传](https://zhuanlan.zhihu.com/p/611352814)
 
+- 前端分片是并发请求，怎么在请求全部成功后，发起合并请求
 
+  - `Promise.all(iterable)`: 接受一个可迭代对象（比如数	组），返回一个 Promise，只有当所有 Promise 都成功时才会成功，一旦有一个 Promise 失败就立即失败。
+
+    [一次看明白大文件上传](https://blog.csdn.net/qq_43220213/article/details/130120575)
+  
+  ```javascript
+  // 模拟上传分片的函数
+  function uploadChunk(chunk) {
+    return new Promise((resolve, reject) => {
+      // 模拟异步上传分片的操作
+      setTimeout(() => {
+        // 模拟上传成功，返回分片信息
+        const chunkInfo = {
+          chunkId: chunk,
+          success: true,
+        };
+        resolve(chunkInfo);
+        // 模拟上传失败的情况
+        // reject(new Error(`Failed to upload chunk ${chunk}`));
+      }, Math.random() * 1000); // 使用随机延迟模拟异步操作
+    });
+  }
+  
+  // 模拟合并请求的函数
+  function mergeChunks(chunkInfos) {
+    return new Promise((resolve, reject) => {
+      // 模拟异步合并操作
+      setTimeout(() => {
+        // 判断所有分片是否成功上传
+        const allChunksUploaded = chunkInfos.every((chunk) => chunk.success);
+  
+        if (allChunksUploaded) {
+          // 模拟合并成功
+          resolve("Merge successful");
+        } else {
+          // 模拟合并失败
+          reject(new Error("Failed to merge chunks"));
+        }
+      }, Math.random() * 1000);
+    });
+  }
+  
+  // 生成上传分片的任务数组
+  const chunkTasks = Array.from({ length: 5 }, (_, index) => uploadChunk(index + 1));
+  
+  // 使用Promise.all并发上传所有分片
+  Promise.all(chunkTasks)
+    .then((chunkInfos) => {
+      // 所有分片上传成功，发起合并请求
+      console.log("All chunks uploaded successfully:", chunkInfos);
+      return mergeChunks(chunkInfos);
+    })
+    .then((mergeResult) => {
+      // 合并请求成功
+      console.log("Merge successful:", mergeResult);
+    })
+    .catch((error) => {
+      // 任何一个步骤出现错误都会进入这里
+      console.error("Error:", error.message);
+    });
+  
+  ```
+  
+  
 
 **前端上传组件**：
 
@@ -428,5 +495,90 @@ router.beforeEach((to, from, next) => {
 
 app.use(router)
 app.mount('#app')
+```
+
+## 20240103
+
+1）使用`.sync`修饰符，它会自动监听子组件的更新事件，这样父组件中的`parentData`会随着子组件的变化而更新。`.sync`实际是一个语法糖。
+
+```html
+<template>
+  <div>
+    <p>{{ parentData }}</p>
+    <ChildComponent :parentProp.sync="parentData"></ChildComponent>
+  </div>
+</template>
+```
+
+// 子组件内
+
+```html
+<script>
+    this.$emit('update:parentProp', value);
+</script>
+```
+
+## 20240105
+
+1）uniapp里，子组件的 `onLoad` 生命周期并不会执行，它是页面的生命周期，在页面加载时进行初始化工作。在组件被创建时执行一些初始化操作，可以使用组件的生命周期比如 `beforeCreate` 和 `created`。
+
+2）updated生命周期会在数据发生变化、导致重新渲染时被调用。
+
+## 20210110
+
+1）vue页面间通信。
+
+- 父子间，`props`和`$emit`
+- 通过vuex状态管理。用于大型应用状态管理。
+- `EventBus`，简单的通信组件。
+
+2）js与ts的重载。js 并没有直接支持重载，而是通过参数的个数和类型进行判断和处理。ts可以使用函数重载来实现不同参数类型和个数的函数。
+
+js：
+
+```javascript
+function exampleFunction() {
+  if (arguments.length === 1 && typeof arguments[0] === 'number') {
+    // 处理只有一个参数且是数字的情况
+    console.log('Function with one numeric argument:', arguments[0]);
+  } else if (arguments.length === 2 && typeof arguments[0] === 'string' && typeof arguments[1] === 'boolean') {
+    // 处理有两个参数，第一个是字符串，第二个是布尔值的情况
+    console.log('Function with a string and a boolean argument:', arguments[0], arguments[1]);
+  } else {
+    // 处理其他情况或抛出错误
+    console.log('Invalid arguments');
+  }
+}
+
+// 调用函数
+exampleFunction(42);                            // 调用第一个情况
+exampleFunction('Hello', true);                // 调用第二个情况
+exampleFunction('Invalid', false, 'Extra');    // 调用第三个情况
+
+```
+
+ts：
+
+```typescript
+// 函数重载的定义
+function exampleFunction(x: number): void;
+function exampleFunction(s: string, b: boolean): void;
+
+// 实际函数实现
+function exampleFunction(x: number | string, b?: boolean): void {
+  if (typeof x === 'number') {
+    console.log('Function with one numeric argument:', x);
+  } else if (typeof x === 'string' && typeof b === 'boolean') {
+    console.log('Function with a string and a boolean argument:', x, b);
+  } else {
+    console.log('Invalid arguments');
+  }
+}
+
+// 调用函数
+exampleFunction(42);                            // 调用第一个情况
+exampleFunction('Hello', true);                // 调用第二个情况
+exampleFunction('Invalid', false, 'Extra');    // 错误，不匹配的参数
+
 ```
 
